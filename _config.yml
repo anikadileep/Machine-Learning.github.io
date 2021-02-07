@@ -1,1 +1,229 @@
 theme: jekyll-theme-slate
+library(caret)
+library(corrplot)
+library(ggplot2)
+
+#reading data
+data=read.csv("cData.csv")
+
+#deleted columns which we found contained only nas 
+data = data[,-c(34,2,1)]
+data = data[complete.cases(data),]
+#check for any remaining na 
+str(data)
+summary(data)
+
+colSums(is.na(data))
+
+##Plot one variable graph for all variables in diagnosis (there should be 2)
+
+ggplot(data, aes(diagnosis)) + geom_bar(fill = "blue")
+
+#we observe one data points with no diagnosis code (row 52 column 1)
+data = data[-which(data$diagnosis == ""),]
+
+#benign and malignant numbers exactly through table function 
+table(data$diagnosis)
+#if you want to see the percentage split 
+prop.table(table(data$diagnosis))
+
+#############################    CORRELATION PLOTS   #############################
+#correlation plot without diagnosis
+all = cor(data[,-1])
+all#this data is hard to visualize so we create a correlation plot without diagnosis
+corrplot(all, method = "pie", type = "lower")
+
+#correlation plot with diagnosis
+
+data$diagnosis = ifelse(data$diagnosis == "M",1, data$diagnosis == "B", 0)
+table(data$diagnosis)
+all = cor(data[,-1])
+all#this data is hard to visualize so we create a correlation plot without diagnosis
+corrplot(all, method = "pie", type = "lower")
+
+#correlation for mean
+#cor for mean
+x=cor(data[,c(2:11)]) # the col num may be different in yours
+corrplot(x) #we need not visualize all 30 variables
+
+#cor for se_error
+y=cor(data[,c(12:21)])
+corrplot(y) 
+
+#cor for worst
+z=cor(data[,c(22:31)])
+corrplot(z) 
+
+#heatmap
+col<-colorRampPalette(c('blue','white','red'))(20)
+heatmap(all,col=col,symm=F)
+
+###########################     COLLINEARITY       #######################
+#perimeter_ mean
+#concave.points.mean
+#area.mean
+#radius.mean
+#compactness.mean
+#concavity_mean
+#texture_mean
+
+#step 1 - seeing which features are most correlated with each other 
+#perimeter_ mean, #concave.points.mean, #area.mean, #radius.mean
+#compactness.mean , #concavity_mean
+#texture_mean (none are closely correlated with this feature)
+
+####### DEFINITION - collinearity if two features are heavily correlated we MUST REMOVE ONE
+
+#step 2 
+#remove collinearity.....
+#perimeter_ mean, #concave.points.mean, #area.mean, #radius.mean
+#compactness.mean , #concavity_mean
+#texture_mean (none are closely correlated with this feature)
+
+####################################### Visualization################# UNIVARIATE ANALYSIS ONE VARIABLE PLOTS
+
+#These plots show that, in general, malignant diagnoses have higher scores in all variables.
+
+library(reshape2)
+df.m <- melt(data[,-c(12:32)], id="diagnosis" )
+### Melts the dataset for diagnosis and creates the boxplots
+ggplot(data = df.m, aes(x=variable, y=value)) +
+geom_boxplot(aes(fill=diagnosis)) + facet_wrap( ~ variable, scales="free")+ xlab("Variables") + ylab("")+ guides(fill=guide_legend(title="Group"))
+
+#converting factor
+data$diagnosis = as.factor(data$diagnosis)
+
+p1=ggplot(data = data, aes(y=radius_mean, fill=diagnosis)) + geom_boxplot() 
+
+#plot boxplots for all variables for _mean and assign them to a variable
+
+p2=ggplot(data = data, aes(y=texture_mean, fill=diagnosis)) + geom_boxplot() 
+
+p3=ggplot(data = data, aes(y=perimeter_mean, fill=diagnosis)) + geom_boxplot() 
+p4=ggplot(data = data, aes(y=area_mean, fill=diagnosis)) + geom_boxplot() 
+p5=ggplot(data = data, aes(y=smoothness_mean, fill=diagnosis)) + geom_boxplot() 
+p6=ggplot(data = data, aes(y=compactness_mean, fill=diagnosis)) + geom_boxplot() 
+p7=ggplot(data = data, aes(y=concavity_mean, fill=diagnosis)) + geom_boxplot() 
+p8=ggplot(data = data, aes(y=concave.points_mean, fill=diagnosis)) + geom_boxplot() 
+p9=ggplot(data = data, aes(y=symmetry_mean, fill=diagnosis)) + geom_boxplot() 
+p10=ggplot(data = data, aes(y=fractal_dimension_mean, fill=diagnosis)) + geom_boxplot() 
+
+#### put all plots on one graph
+library(cowplot)    # used for combining multiple plots 
+plot_grid(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10, nrow=3)
+
+#################################    BUILDING MODELS    ############################
+#splitting data into testing and training 
+set.seed(100)
+index = createDataPartition(data$diagnosis, p = 0.7, list = F )
+train1= data[index,]
+test1 = data[-index,]
+
+#check how many m and b cells are in the testing dataset 
+table(train1$diagnosis)
+train_mean = train1[,c(1:11)]
+test_mean = test1[,c(1:11)] 
+
+
+#####################     LOGISTIC REGRESSION    ##########################
+#for glm select only one category of data or else it is hard to converge 
+
+#picking the best features to predict diagnosis 
+#removing collinearity by only picking one feature from heavily correlated features 
+prediction_var = c('diagnosis', 'texture_mean', 'perimeter_mean', 'smoothness_mean', 'compactness_mean', 'symmetry_mean')
+
+#create a dataset with only features above                
+train_mean_features = train_mean[, prediction_var]
+test_mean_features = test_mean[,prediction_var]
+
+model = glm(diagnosis~., train_mean_features, family=binomial(link="logit"))
+
+predict = predict(model, test_mean_features, type="response")
+
+results = ifelse(predict<0.5, 0, 1)
+
+accuracy.glm = mean(results == test_mean_features$diagnosis)
+accuracy.glm #0.8941176
+
+###########################      CONFUSION MATRIX      ############################
+
+table(as.factor(test1$diagnosis), as.factor(results))
+#or
+cm_lg  <- confusionMatrix(as.factor(results), test1$diagnosis)   
+cm_lg
+
+# Optional: Print ROC and AUC curve
+library(pROC)
+#Compute roc
+roc.lg = roc(as.numeric(test1$diagnosis), results)
+plot(roc.lg, print.auc = TRUE)
+
+
+###############################      KKNN        ##############################
+
+#check IRIS.r file for KKNN classification problem - build similar model using train1 and test1 
+# Step2: train a classification model using K Nearest Neighbor Algorithm using method="kknn"
+#modelName = train( VariableThatIsBeingPredicted ~., dataset, method="kknn")
+model = train(diagnosis~., train1, method = "kknn")
+# Step3: predict the results on testing dataset
+predict.kknn = predict(model, test1)
+# Step4: measure accuracy. accuracy is measured 
+#accuracy = sum (predictedValues == actualValue) / TotalNumberOfObservations
+accuracy = sum(predict.kknn == test1$diagnosis) / nrow(test1)#0.9588235
+
+cm_knn  <- confusionMatrix(predict.kknn, as.factor(test1$diagnosis))   
+cm_knn
+
+roc.kknn1 = roc(as.numeric(as.numeric(test1$diagnosis)), as.numeric(predict))
+
+plot(roc.kknn1, print.auc = TRUE)
+
+# Run the model on entire dataset, and not just selected features to check for accuracy and gradually remove one feature at a time
+model.rf = train(diagnosis~., train1, method="rf")
+predict.rf = predict(model.rf, test1)
+accuracy.rf = mean(predict.rf==test1$diagnosis)
+accuracy.rf #0.9352941
+cm_rf  <- confusionMatrix(predict.rf, as.factor(test1$diagnosis))   
+cm_rf
+
+
+
+############    Rpart (recursive partitioning and regression trees)   ##################
+
+## Identify the variables that will be used for prediction
+## training the model
+# Run the model on entire dataset, and not just selected features to check for accuracy and gradually remove one feature at a time
+model.rpart = train(diagnosis~., train1, method="rpart")
+predict.rpart = predict(model.rpart, test1)
+accuracy.rpart = mean(predict.rpart==test1$diagnosis)
+accuracy.rpart #0.8411765
+cm_rpart  <- confusionMatrix(predict.rpart, as.factor(test1$diagnosis))   
+cm_rpart
+
+
+##########################   Support Vector Machines   #########################
+library(e1071)
+library(rpart)
+model.svm <- svm(diagnosis~., data=train1)
+
+predict.svm=predict(model.svm, test1)
+accuracy.svm = mean(predict.svm==test1$diagnosis)
+accuracy.svm #0.9823529
+cm_svm=confusionMatrix(predict, test1$diagnosis)   
+cm_svm
+
+##############################     Class imbalance    ##############################
+table(train1$diagnosis)
+#There is approximately 60/40 split between benign and malignant samples
+#So lets downsample it using the downSample function from caret package.
+#To do this you just need to provide the X and Y variables as arguments.
+
+#############################       Down Sample     ########################3
+
+
+
+
+
+
+
+
